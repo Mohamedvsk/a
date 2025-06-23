@@ -1,0 +1,201 @@
+-- Gui + TP Script by @uniquadev
+
+-- Services
+local HttpService = game:GetService("HttpService")
+local TeleportService = game:GetService("TeleportService")
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+
+local alarmSound = nil
+local isAlarmPlaying = false
+local previousFound = false
+
+-- انتظار LocalPlayer و PlayerGui
+local player = Players.LocalPlayer
+repeat wait() until player and player:FindFirstChild("PlayerGui")
+
+-- استقبال أسماء الحيوانات من السكربت الخارجي
+local petnames = {}
+local success, err = pcall(function()
+    local loadedFunc = loadstring(game:HttpGet("https://pastebin.com/raw/avJKgekN"))()
+    local pet1, pet2, pet3, pet4 = loadedFunc()
+    if pet1 then table.insert(petnames, pet1) end
+    if pet2 then table.insert(petnames, pet2) end
+    if pet3 then table.insert(petnames, pet3) end
+    if pet4 then table.insert(petnames, pet4) end
+end)
+
+-- إذا فشل التحميل نستخدم أسماء افتراضية
+if not success or #petnames == 0 then
+    petnames = {
+        'Graipuss Medussi',
+        'La Vacca Saturno Saturnita',
+        'La Grande Combinasion',
+        'Fluriflura'
+    }
+end
+
+local PlaceID = game.PlaceId
+local AllIDs = {}
+local foundAnything = ""
+local actualHour = os.date("!*t").hour
+
+-- إنشاء واجهة المستخدم GUI
+local screenGui = Instance.new("ScreenGui")
+screenGui.Name = "AboSaqerGUI"
+screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+screenGui.ResetOnSpawn = false
+screenGui.Parent = player:WaitForChild("PlayerGui")
+
+local mainFrame = Instance.new("Frame")
+mainFrame.Name = "MainFrame"
+mainFrame.Size = UDim2.new(0, 522, 0, 195)
+mainFrame.Position = UDim2.new(0.39781, 0, 0.18253, 0)
+mainFrame.BackgroundColor3 = Color3.fromRGB(63, 63, 63)
+mainFrame.BorderSizePixel = 0
+mainFrame.Parent = screenGui
+
+local titleLabel = Instance.new("TextLabel")
+titleLabel.Name = "TitleLabel"
+titleLabel.Size = UDim2.new(0, 522, 0, 50)
+titleLabel.BackgroundTransparency = 1
+titleLabel.BackgroundColor3 = Color3.fromRGB(63, 63, 63)
+titleLabel.Text = "Abo Saqer Menu"
+titleLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+titleLabel.Font = Enum.Font.SourceSans
+titleLabel.TextScaled = true
+titleLabel.TextWrapped = true
+titleLabel.BorderSizePixel = 2
+titleLabel.BorderColor3 = Color3.fromRGB(255, 255, 255)
+titleLabel.Parent = mainFrame
+
+local statusLabel = Instance.new("TextLabel")
+statusLabel.Name = "StatusLabel"
+statusLabel.Size = UDim2.new(0, 383, 0, 69)
+statusLabel.Position = UDim2.new(0.14943, 0, 0.36923, 0)
+statusLabel.BackgroundColor3 = Color3.fromRGB(255, 0, 0)
+statusLabel.Text = "الحالة : لم يتم العثور"
+statusLabel.TextColor3 = Color3.fromRGB(0, 0, 0)
+statusLabel.Font = Enum.Font.SourceSans
+statusLabel.TextSize = 45
+statusLabel.TextWrapped = true
+statusLabel.BorderSizePixel = 0
+statusLabel.BorderColor3 = Color3.fromRGB(0, 0, 0)
+statusLabel.Parent = mainFrame
+
+-- تحميل البيانات من ملف NotSameServers.json
+local success, data = pcall(function()
+    return HttpService:JSONDecode(readfile("NotSameServers.json"))
+end)
+
+if success and type(data) == "table" then
+    AllIDs = data
+else
+    table.insert(AllIDs, actualHour)
+    writefile("NotSameServers.json", HttpService:JSONEncode(AllIDs))
+end
+
+-- دالة البحث عن سيرفر جديد للانتقال إليه
+function TPReturner()
+    local Site
+    if foundAnything == "" then
+        Site = HttpService:JSONDecode(game:HttpGet("https://games.roblox.com/v1/games/" .. PlaceID .. "/servers/Public?sortOrder=Asc&limit=100"))
+    else
+        Site = HttpService:JSONDecode(game:HttpGet("https://games.roblox.com/v1/games/" .. PlaceID .. "/servers/Public?sortOrder=Asc&limit=100&cursor=" .. foundAnything))
+    end
+
+    if Site.nextPageCursor then
+        foundAnything = Site.nextPageCursor
+    end
+
+    for _, v in ipairs(Site.data) do
+        local ID = tostring(v.id)
+        local playing = tonumber(v.playing)
+        local maxPlayers = tonumber(v.maxPlayers)
+        local isNewServer = not table.find(AllIDs, ID)
+
+        if playing < maxPlayers and isNewServer then
+            if tonumber(AllIDs[1]) ~= actualHour then
+                pcall(function()
+                    delfile("NotSameServers.json")
+                end)
+                AllIDs = { actualHour }
+            end
+
+            table.insert(AllIDs, ID)
+            pcall(function()
+                writefile("NotSameServers.json", HttpService:JSONEncode(AllIDs))
+                TeleportService:TeleportToPlaceInstance(PlaceID, ID, player)
+            end)
+
+            wait(4)
+            break
+        end
+    end
+end
+
+-- دالة تنفيذ عملية التنقل بشكل دوري
+function Teleport()
+    while true do
+        statusLabel.Text = "الحالة : لم يتم العثور"
+        wait()
+        local success, err = pcall(function()
+            TPReturner()
+        end)
+        if not success then
+            warn("TPReturner Error:", err)
+        end
+    end
+end
+
+-- عملية فحص وجود الحيوانات وتشغيل التنبيه
+spawn(function()
+    while wait(1) do
+        local found = false
+
+        for _, petname in ipairs(petnames) do
+            if workspace:FindFirstChild(petname) then
+                found = true
+                break
+            end
+        end
+
+        if found then
+            statusLabel.Text = "الحالة : تم العثور ✅"
+
+            if not previousFound then
+                if not alarmSound then
+                    alarmSound = Instance.new("Sound")
+                    alarmSound.SoundId = "rbxassetid://86632818527519"
+                    alarmSound.Volume = 5
+                    alarmSound.Parent = player.Character and player.Character:FindFirstChild("HumanoidRootPart") or nil
+                end
+
+                if alarmSound and alarmSound.Parent then
+                    isAlarmPlaying = true
+                    alarmSound:Play()
+
+                    spawn(function()
+                        wait(5)
+                        if alarmSound and alarmSound.IsPlaying then
+                            alarmSound:Stop()
+                        end
+                        isAlarmPlaying = false
+                    end)
+                end
+            end
+        else
+            statusLabel.Text = "الحالة : لم يتم العثور ❌"
+
+            if isAlarmPlaying and alarmSound then
+                alarmSound:Stop()
+                isAlarmPlaying = false
+            end
+        end
+
+        previousFound = found
+    end
+end)
+
+-- بدء البحث عن السيرفرات
+Teleport()
